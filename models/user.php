@@ -76,6 +76,13 @@ class User extends UsersAppModel {
 	public $validate = array();
 
 /**
+ * Detail model
+ *
+ * @var Detail
+ */
+	public $Detail = null;
+
+/**
  * Constructor
  *
  * @param string $id ID
@@ -406,16 +413,13 @@ class User extends UsersAppModel {
 				'Detail'),
 			'conditions' => array(
 				$this->alias . '.slug' => $slug,
-				'OR' => array(
-					'AND' =>
-						array($this->alias . '.active' => 1, $this->alias . '.email_authenticated' => 1),
-						//array($this->alias . '.active' => 1, $this->alias . '.account_type' => 'remote')
-						))));
+				$this->alias . '.active' => 1,
+				$this->alias . '.email_authenticated' => 1),
+		));
 
 		if (empty($user)) {
 			throw new Exception(__d('users', 'The user does not exist.', true));
 		}
-
 		return $user;
 	}
 

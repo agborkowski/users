@@ -29,14 +29,26 @@ class UsersController extends UsersAppController {
  *
  * @var array
  */
-	public $helpers = array('Html', 'Form', 'Session', 'Time', 'Text', 'Utils.Gravatar');
+	public $helpers = array(
+		'Form',
+		'Html',
+		'Session',
+		'Text',
+		'Time',
+	);
 
 /**
  * Components
  *
  * @var array
  */
-	public $components = array('Auth', 'Session', 'Email', 'Cookie', 'Search.Prg');
+	public $components = array(
+		'Cookie',
+		'Email',
+		'Search.Prg',
+		'Session',
+		'Users.UsersAuth',
+	);
 
 /**
  * $presetVars
@@ -55,60 +67,31 @@ class UsersController extends UsersAppController {
  */
 	public function beforeFilter() {
 		parent::beforeFilter();
-		$this->Auth->allow('register', 'reset', 'verify', 'logout', 'index', 'view', 'reset_password');
+		$this->Auth->allow('add', 'reset', 'verify', 'logout', 'index', 'view', 'reset_password', 'session', 'login');
 
-		if ($this->action == 'register') {
+		if ($this->action == 'add') {
 			$this->Auth->enabled = false;
 		}
 
 		if ($this->action == 'login') {
+			if ($this->Auth->user()) {
+				$this->Session->setFlash(__d('users', 'You are already logged in.', true));
+				return $this->redirect($this->Auth->loginRedirect);
+			}
 			$this->Auth->autoRedirect = false;
 		}
 
 		$this->set('model', $this->modelClass);
-
-		if (!Configure::read('App.defaultEmail')) {
-			Configure::write('App.defaultEmail', 'noreply@' . env('HTTP_HOST'));
-		}
 	}
 
 /**
- * List of all users
- *
- * @return void
+ *  redirect to dashboard
+ *  @return void
  */
 	public function index() {
-		//$this->User->contain('Detail');
-		$searchTerm = '';
-		$this->Prg->commonProcess($this->modelClass, $this->modelClass, 'index', false);
-
-		if (!empty($this->params['named']['search'])) {
-			if (!empty($this->params['named']['search'])) {
-				$searchTerm = $this->params['named']['search'];
-			}
-			$this->data[$this->modelClass]['search'] = $searchTerm;
-		}
-
-		$this->paginate = array(
-			'search',
-			'limit' => 12,
-			'order' => $this->modelClass . '.username ASC',
-			'by' => $searchTerm,
-			'conditions' => array(
-				'OR' => array(
-					'AND' => array(
-							$this->modelClass . '.active' => 1, 
-							$this->modelClass . '.email_authenticated' => 1))));
-
-
-		$this->set('users', $this->paginate($this->modelClass));
-		$this->set('searchTerm', $searchTerm);
-
-		if (!isset($this->params['named']['sort'])) {
-			$this->params['named']['sort'] = 'username';
-		}
+		$this->redirect(array('action'=>'dashboard'));
 	}
-
+	
 /**
  * The homepage of a users giving him an overview about everything
  *
@@ -140,7 +123,7 @@ class UsersController extends UsersAppController {
  * @param string $id User ID
  * @return void
  */
-	public function edit() {
+	public function edit($slug) {
 		if (!empty($this->data)) {
 			if ($this->User->Detail->saveSection($this->Auth->user('id'), $this->data, 'User')) {
 				$this->Session->setFlash(__d('users', 'Profile saved.', true));
@@ -148,9 +131,17 @@ class UsersController extends UsersAppController {
 				$this->Session->setFlash(__d('users', 'Could not save your profile.', true));
 			}
 		} else {
+			try {
+				$this->data = $this->User->view($slug);
+				if($this->Auth->user('slug') != $this->data[$this->modelClass]['slug']){
+					$this->redirect('/');
+				}
+			} catch (Exception $e) {
+				$this->Session->setFlash($e->getMessage());
+				$this->redirect('/');
+			}
 			$this->data = $this->User->read(null, $this->Auth->user('id'));
 		}
-
 		$this->_setLanguages();
 	}
 
@@ -180,7 +171,7 @@ class UsersController extends UsersAppController {
 	public function admin_view($id = null) {
 		if (!$id) {
 			$this->Session->setFlash(__d('users', 'Invalid User.', true));
-			$this->redirect(array('action'=>'index'));
+			return $this->redirect(array('action' => 'index'));
 		}
 		$this->set('user', $this->User->read(null, $id));
 	}
@@ -192,7 +183,7 @@ class UsersController extends UsersAppController {
  */
 	public function admin_add() {
 		if ($this->User->add($this->data)) {
-			$this->Session->setFlash(__d('users', 'The User has been saved', true));
+			$this->Session->setFlash(__d('users', 'User saved.', true));
 			$this->redirect(array('action' => 'index'));
 		}
 	}
@@ -207,7 +198,7 @@ class UsersController extends UsersAppController {
 		try {
 			$result = $this->User->edit($userId, $this->data);
 			if ($result === true) {
-				$this->Session->setFlash(__d('users', 'User saved', true));
+				$this->Session->setFlash(__d('users', 'User saved.', true));
 				$this->redirect(array('action' => 'index'));
 			} else {
 				$this->data = $result;
@@ -230,9 +221,9 @@ class UsersController extends UsersAppController {
  */
 	public function admin_delete($userId = null) {
 		if ($this->User->delete($userId)) {
-			$this->Session->setFlash(__d('users', 'User deleted', true));
+			$this->Session->setFlash(__d('users', 'User deleted.', true));
 		} else {
-			$this->Session->setFlash(__d('users', 'Invalid User', true));
+			$this->Session->setFlash(__d('users', 'Invalid User.', true));
 		}
 
 		$this->redirect(array('action' => 'index'));
@@ -252,10 +243,10 @@ class UsersController extends UsersAppController {
  *
  * @return void
  */
-	public function register() {
+	public function add() {
 		if ($this->Auth->user()) {
-			$this->Session->setFlash(__d('users', 'You are already registered and logged in!', true));
-			$this->redirect('/');
+			$this->Session->setFlash(__d('users', 'You are already registered and logged in.', true));
+			return $this->redirect($this->Auth->loginRedirect);
 		}
 
 		if (!empty($this->data)) {
@@ -264,7 +255,7 @@ class UsersController extends UsersAppController {
 				$this->set('user', $user);
 				$this->_sendVerificationEmail($user[$this->modelClass]['email']);
 				$this->Session->setFlash(__d('users', 'Your account has been created. You should receive an e-mail shortly to authenticate your account. Once validated you will be able to login.', true));
-				$this->redirect(array('action'=> 'login'));
+				return $this->redirect(array('action' => 'login'));
 			} else {
 				unset($this->data[$this->modelClass]['passwd']);
 				unset($this->data[$this->modelClass]['temppassword']);
@@ -273,39 +264,35 @@ class UsersController extends UsersAppController {
 		}
 
 		$this->_setLanguages();
+
+		// Render the OpenID form if that data is present
+		$oid = $this->Session->read('openIdAuthData');
+		if ($oid) {
+			$this->autoRender = false;
+			$this->set('openIdAuthData', $oid);
+			$this->render('openid_add');
+		}
 	}
 
 /**
- * Common login action
+ * Login action
+ *
+ * Checks for posted login information, as well as processing cookie
+ * information if present, to automatically login the user.
  *
  * @return void
  */
 	public function login() {
-		if ($this->Auth->user()) {
-			$this->User->id = $this->Auth->user('id');
-			$this->User->saveField('last_login', date('Y-m-d H:i:s'));
-
+		if ($this->Auth->user() || $this->Auth->login()) {
 			if ($this->here == $this->Auth->loginRedirect) {
 				$this->Auth->loginRedirect = '/';
 			}
-
-			$this->Session->setFlash(sprintf(__d('users', '%s you have successfully logged in', true), $this->Auth->user('username')));
-			if (!empty($this->data)) {
-				$data = $this->data[$this->modelClass];
-				$this->_setCookie();
-			}
-
-			if (empty($data['return_to'])) {
-				$data['return_to'] = null;
-			}
-			$this->redirect($this->Auth->redirect($data['return_to']));
+			$data = $this->data[$this->modelClass];
+			$url = !empty($data['return_to']) ? $data['return_to'] : null;
+			return $this->redirect($this->Auth->redirect($url));
 		}
-
-		if (isset($this->params['named']['return_to'])) {
-			$this->set('return_to', urldecode($this->params['named']['return_to']));
-		} else {
-			$this->set('return_to', false);
-		}
+		$return_to = isset($this->params['named']['return_to']) ? urldecode($this->params['named']['return_to']) : false;
+		$this->set('return_to', $return_to);
 	}
 
 /**
@@ -337,92 +324,81 @@ class UsersController extends UsersAppController {
 			'by' => $by,
 			'search' => $searchTerm,
 			'conditions' => array(
-					'AND' => array(
-						$this->modelClass . '.active' => 1,
-						$this->modelClass . '.email_authenticated' => 1)));
+				$this->modelClass . '.active' => 1,
+				$this->modelClass . '.email_authenticated' => 1));
 
 		$this->set('users', $this->paginate($this->modelClass));
 		$this->set('searchTerm', $searchTerm);
 	}
 
 /**
- * Common logout action
+ * Logout action
  *
  * @return void
  */
 	public function logout() {
-		$message = sprintf(__d('users', '%s you have successfully logged out', true), $this->Auth->user('username'));
+		// Message is created first, to grab authentication information before destroying session
+		$message = sprintf(__d('users', '%s, you have successfully logged out.', true), $this->Auth->user('username'));
+
 		$this->Session->destroy();
-		$this->Cookie->destroy();
-		
 		$this->Session->setFlash($message);
 		$this->redirect($this->Auth->logout());
 	}
 
 /**
- * Confirm email action
+ * Confirm email action and password reset action
  *
  * @param string $type Type
  * @return void
  */
-	public function verify($type = 'email') {
-		if (isset($this->passedArgs['1'])){
-			$token = $this->passedArgs['1'];
-		} else {
-			$this->redirect(array('action' => 'login'), null, true);
+	public function verify($type = 'email', $token = null) {
+		$verifyTypes = array('email', 'reset');
+		if (!$token || !in_array($type, $verifyTypes)) {
+			$this->Session->setFlash(__d('users', 'The url you have accessed is no longer valid.', true));
 		}
 
+		$data = $this->User->validateToken($token, $type === 'reset');
+		if (!$data) {
+			$this->Session->setFlash(__d('users', 'The url you have accessed is no longer valid', true));
+			return $this->redirect('/');
+		}
+
+		$email = $data[$this->modelClass]['email'];
+		unset($data[$this->modelClass]['email']);
+
+		if ($type === 'reset') {
+			$newPassword = $data[$this->modelClass]['passwd'];
+			$data[$this->modelClass]['passwd'] = $this->Auth->password($newPassword);
+		}
 		if ($type === 'email') {
-			$data = $this->User->validateToken($token);
-		} elseif($type === 'reset') {
-			$data = $this->User->validateToken($token, true);
-		} else {
-			$this->Session->setFlash(__d('users', 'There url you accessed is not longer valid', true));
-			$this->redirect('/');
+			$data[$this->modelClass]['active'] = 1;
 		}
 
-		if ($data !== false) {
-			$email = $data[$this->modelClass]['email'];
-			unset($data[$this->modelClass]['email']);
-
+		if ($this->User->save($data, false)) {
 			if ($type === 'reset') {
-				$newPassword = $data[$this->modelClass]['passwd'];
-				$data[$this->modelClass]['passwd'] = $this->Auth->password($newPassword);
-			}
-
-			if ($type === 'email') {
-				$data[$this->modelClass]['active'] = 1;
-			}
-
-			if ($this->User->save($data, false)) {
-				if ($type === 'reset') {
-					$this->Email->to = $email;
-					$this->Email->from = Configure::read('App.defaultEmail');
-					$this->Email->replyTo = Configure::read('App.defaultEmail');
-					$this->Email->return = Configure::read('App.defaultEmail');
-					$this->Email->subject = env('HTTP_HOST') . ' ' . __d('users', 'Password Reset', true);
-					$this->Email->template = null;
-					$content[] = __d('users', 'Your password has been reset', true);
-					$content[] = __d('users', 'Please login using this password and change your password', true);
-					$content[] = $newPassword;
-					$this->Email->send($content);
-					$this->Session->setFlash(__d('users', 'Your password was sent to your registered email account', true));
-					$this->redirect(array('action' => 'login'));
-				} else {
-					unset($data);
-					$data[$this->modelClass]['active'] = 1;
-					$this->User->save($data);
-					$this->Session->setFlash(__d('users', 'Your e-mail has been validated!', true));
-					$this->redirect(array('action' => 'login'));
-				}
+				
+				$content[] = __d('users', 'Your password has been reset.', true);
+				$content[] = __d('users', 'Please login using this password and change your password.', true);
+				$content[] = $newPassword;
+				
+				$this->__sendEmail($email, array(
+					'subject' => env('HTTP_HOST') . ' ' . __d('users', 'Password Reset', true),
+					'template' => null,
+					'content' => $content				
+				));
+				
+				$this->Session->setFlash(__d('users', 'Your password has been sent to your registered email address.', true));
 			} else {
-				$this->Session->setFlash(__d('users', 'There was an error trying to validate your e-mail address. Please check your e-mail for the URL you should use to verify your e-mail address.', true));
-				$this->redirect('/');
+				unset($data);
+				$data[$this->modelClass]['active'] = 1;
+				$this->User->save($data);
+				$this->Session->setFlash(__d('users', 'Your e-mail has been validated. You may now login.', true));
 			}
-		} else {
-			$this->Session->setFlash(__d('users', 'The url you accessed is not longer valid', true));
-			$this->redirect('/');
+			return $this->redirect(array('action' => 'login'));
 		}
+
+		$this->Session->setFlash(__d('users', 'There was an error verifying your account. Please check the email you were sent, and retry the verification link.', true));
+		$this->redirect('/');
 	}
 
 /**
@@ -434,8 +410,8 @@ class UsersController extends UsersAppController {
 		if (!empty($this->data)) {
 			$this->data[$this->modelClass]['id'] = $this->Auth->user('id');
 			if ($this->User->changePassword($this->data)) {
-				$this->Session->setFlash(__d('users', 'Password changed.', true));
-				$this->redirect('/');
+				$this->Session->setFlash(__d('users', 'Your password was successfully changed.', true));
+				$this->redirect(array('action' => 'dashboard'));
 			}
 		}
 	}
@@ -488,19 +464,13 @@ class UsersController extends UsersAppController {
  */
 	protected function _sendVerificationEmail($to = null, $options = array()) {
 		$defaults = array(
-			'from' => 'noreply@' . env('HTTP_HOST'),
 			'subject' => __d('users', 'Account verification', true),
-			'template' => 'account_verification');
-
+			'template' => 'account_verification'
+		);
 		$options = array_merge($defaults, $options);
-
-		$this->Email->to = $to;
-		$this->Email->from = $options['from'];
-		$this->Email->subject = $options['subject'];
-		$this->Email->template = $options['template'];
-
-		return $this->Email->send();
+		return $this->__sendEmail($to, $options);
 	}
+	
 
 /**
  * Checks if the email is in the system and authenticated, if yes create the token
@@ -512,10 +482,8 @@ class UsersController extends UsersAppController {
  */
 	protected function _sendPasswordReset($admin = null, $options = array()) {
 		$defaults = array(
-			'from' => 'noreply@' . env('HTTP_HOST'),
 			'subject' => __d('users', 'Password Reset', true),
 			'template' => 'password_reset_request');
-
 		$options = array_merge($defaults, $options);
 
 		if (!empty($this->data)) {
@@ -523,58 +491,22 @@ class UsersController extends UsersAppController {
 
 			if (!empty($user)) {
 				$this->set('token', $user[$this->modelClass]['password_token']);
-				$this->Email->to = $user[$this->modelClass]['email'];
-				$this->Email->from = $options['from'];
-				$this->Email->subject = $options['subject'];
-				$this->Email->template = $options['template'];
-
-				$this->Email->send();
+				$this->__sendEmail( $user[$this->modelClass]['email'], $options);
 				if ($admin) {
 					$this->Session->setFlash(sprintf(
-						__d('users', '%s has been sent an email with instruction to reset their password.', true),
+						__d('users', '%s has been sent an email with instructions to reset their password.', true),
 						$user[$this->modelClass]['email']));
-					$this->redirect(array('action' => 'index', 'admin' => true));
+					return $this->redirect(array('action' => 'index', 'admin' => true));
 				} else {
-					$this->Session->setFlash(__d('users', 'You should receive an email with further instructions shortly', true));
-					$this->redirect(array('action' => 'login'));
+					$this->Session->setFlash(__d('users', 'Password reset requested. Please check your email for further instructions.', true));
+					return $this->redirect(array('action' => 'login'));
 				}
 			} else {
 				$this->Session->setFlash(__d('users', 'No user was found with that email.', true));
-				$this->redirect('/');
+				return $this->redirect(array('action' => 'reset_password'));
 			}
 		}
 		$this->render('request_password_change');
-	}
-
-/**
- * Sets the cookie to remember the user
- *
- * @param array Cookie properties
- * @return void
- * @access protected
- * @link http://api13.cakephp.org/class/cookie-component
- */
-	protected function _setCookie($options = array()) {
-		if (!isset($this->data[$this->modelClass]['remember_me'])) {
-			$this->Cookie->delete($this->modelClass);
-		} else {
-			$validProperties = array('domain', 'key', 'name', 'path', 'secure', 'time');
-			$defaults = array(
-				'name' => 'rememberMe');
-
-			$options = array_merge($defaults, $options);
-			foreach ($options as $key => $value) {
-				if (in_array($key, $validProperties)) {
-					$this->Cookie->{$key} = $value;
-				}
-			}
-
-			$cookie = array();
-			$cookie[$this->Auth->fields['username']] = $this->data[$this->modelClass][$this->Auth->fields['username']];
-			$cookie[$this->Auth->fields['password']] = $this->data[$this->modelClass][$this->Auth->fields['password']];
-			$this->Cookie->write($this->modelClass, $cookie, true, '1 Month');
-		}
-		unset($this->data[$this->modelClass]['remember_me']);
 	}
 
 /**
@@ -586,7 +518,7 @@ class UsersController extends UsersAppController {
 	private function __resetPassword($token) {
 		$user = $this->User->checkPasswordToken($token);
 		if (empty($user)) {
-			$this->Session->setFlash(__d('users', 'Invalid password reset token, try again.', true));
+			$this->Session->setFlash(__d('users', 'Invalid password reset token, please try again.', true));
 			$this->redirect(array('action' => 'reset_password'));
 		}
 
@@ -598,5 +530,42 @@ class UsersController extends UsersAppController {
 		}
 
 		$this->set('token', $token);
+	}
+	
+	private function __sendEmail($to, $options = array()){
+		if(empty($to))
+			trigger_error(__d('users','Invalid email address, please set email and try again.'));
+		$defaultOptions = array(
+			'sendAs' => 'both',
+			'subject' => 'system email',
+			'template' => null,
+			'layout' => null,
+			'delivery' => 'smtp',
+			'data' => null,
+			'content' => null
+		);
+		$options = array_merge($defaultOptions,$options);
+		Configure::load ( 'smtp' );
+		$this->Email->reset ();
+		$this->Email->to = $to;
+		$this->Email->sendAs = $options['sendAs']; // because we like to send pretty mail
+		$this->Email->smtpOptions = Configure::read ( 'Email' );
+		$this->Email->replyTo = Configure::read ( 'Email.fromHeader' );
+		$this->Email->from = Configure::read ( 'Email.fromHeader' );
+		$this->Email->return = Configure::read ( 'Email.from' );
+		//regular email sending
+		$this->Email->subject = $options['subject'];
+		$this->Email->delivery = $options['delivery'];
+		//Set the body of the mail as we send it.
+		//Note: the text can be an array, each element will appear as a
+		//seperate line in the message body.
+		return $this->Email->send ($options['content'],$options['template'],$options['layout']);
+	}
+	
+	public function kill_session() {
+		if (Configure::read('debug')) {
+			$this->Session->destroy();
+			return $this->redirect('/');
+		}
 	}
 }
